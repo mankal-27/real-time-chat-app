@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-time Chat (Phase 3)</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 20px; background-color: #f4f4f4; }
+        #messages { list-style-type: none; margin: 0; padding: 0; max-height: 400px; overflow-y: scroll; border: 1px solid #ccc; background-color: #fff; }
+        #messages li { padding: 8px 10px; border-bottom: 1px solid #eee; }
+        #messages li:last-child { border-bottom: none; }
+        #messages .system-message { font-style: italic; color: #888; text-align: center; }
+        #form { background: #eee; padding: 10px; display: flex; }
+        #input { border: 1px solid #ccc; padding: 10px; flex-grow: 1; margin-right: 10px; }
+        button { background: #007bff; color: white; border: none; padding: 10px 15px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        #status { text-align: center; font-size: 0.9em; color: #555; margin-bottom: 15px; }
+    </style>
+</head>
+<body>
+<h1>Real-time Chat (Phase 3)</h1>
+<div id="status">Connecting...</div>
+
+<ul id="messages"></ul>
+
+<form id="form" action="">
+    <input id="input" autocomplete="off" /><button>Send</button>
+</form>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+    // public/index.html (client-side JavaScript)
+
+    const socket = io();
+
+    const form = document.getElementById('form');
+    const input = document.getElementById('input');
+    const messages = document.getElementById('messages');
+    const statusDiv = document.getElementById('status');
+
+    let myUsername = ''; // To store the user's own confirmed username
+
+    // Helper function to add a message to the UI
+    function addMessageToUI(message, isSystem = false) {
+        const item = document.createElement('li');
+        item.textContent = message;
+        if (isSystem) {
+            item.classList.add('system-message');
+        }
+        messages.appendChild(item);
+        window.scrollTo(0, document.body.scrollHeight);
+    }
+
+    // --- NEW: Handle username setting on connection ---
+    socket.on('connect', () => {
+        statusDiv.textContent = 'Connected. Setting username...';
+        let username = '';
+        // Loop until a valid username is provided (or user cancels)
+        while (!username || username.trim() === '') {
+            username = prompt("Please enter your username:");
+            if (username === null) { // User clicked cancel
+                statusDiv.textContent = 'Disconnected. Please refresh to join.';
+                socket.disconnect(); // Disconnect if user cancels username input
+                return;
+            }
+            if (username.trim() === '') {
+                alert('Username cannot be empty!');
+            }
+        }
+        socket.emit('set username', username.trim());
+    });
+
+    // --- NEW: Server confirms username set ---
+    socket.on('username set', (username) => {
+        myUsername = username;
+        statusDiv.textContent = `Joined as: ${myUsername}`;
+        addMessageToUI(`Welcome, ${myUsername}!`, true);
+    });
+
+    // --- NEW: Server indicates username error ---
+    socket.on('username error', (errorMsg) => {
+        alert(errorMsg);
+        statusDiv.textContent = 'Username failed. Refresh to try again.';
+        // Optionally, you might want to prompt again or disconnect
+        socket.disconnect(); // Disconnect to force a refresh and re-prompt
+    });
+
+    // --- MODIFIED: Emit message to server on form submission ---
+    form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        if (input.value && myUsername) { // Ensure user has a username set
+            // Just send the message content; server will add the username
+            socket.emit('chat message', input.value);
+            input.value = '';
+        } else if (!myUsername) {
+            alert('Please set your username first!');
+        }
+    });
+
+    // --- MODIFIED: Listen for incoming 'chat message' events from the server ---
+    socket.on('chat message', (data) => {
+        // Data is now an object: { user: '...', msg: '...' }
+        addMessageToUI(`${data.user}: ${data.msg}`);
+    });
+
+    // --- NEW: Listen for 'user joined' event ---
+    socket.on('user joined', (username) => {
+        // Only announce if it's not our own join message (already handled by 'username set')
+        if (username !== myUsername) {
+            addMessageToUI(`${username} has joined the chat.`, true);
+        }
+    });
+
+    // --- NEW: Listen for 'user left' event ---
+    socket.on('user left', (username) => {
+        addMessageToUI(`${username} has left the chat.`, true);
+    });
+
+    // Basic error/disconnect handling for client
+    socket.on('disconnect', () => {
+        addMessageToUI('You have been disconnected.', true);
+        statusDiv.textContent = 'Disconnected.';
+    });
+    socket.on('connect_error', (err) => {
+        console.error('Socket.IO connection error:', err);
+        statusDiv.textContent = 'Connection error. Retrying...';
+    });
+
+</script>
+</body>
+</html>
